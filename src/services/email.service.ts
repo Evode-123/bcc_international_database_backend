@@ -275,6 +275,70 @@ function buildEmailChangedHtmlBody(fullName: string, oldEmail: string, newEmail:
 </html>`.trim();
 }
 
+/**
+ * Splits a "Display Name <address@example.com>" string (the SMTP_FROM format)
+ * into the { name, email } shape Brevo's API expects. A bare address with no
+ * display name also works.
+ */
+function parseFromAddress(from: string): { name?: string; email: string } {
+  const match = from.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+  if (match) {
+    return { name: match[1].trim() || undefined, email: match[2].trim() };
+  }
+  return { email: from.trim() };
+}
+
+/**
+ * Single place every email goes out from.
+ *  - If BREVO_API_KEY is set: sends over HTTPS (port 443). This is what works
+ *    on hosts that block SMTP ports, like Render's free tier.
+ *  - Otherwise: falls back to the original nodemailer/SMTP path, so local
+ *    development behaves exactly as before.
+ * Returns an id for logging. Throws on failure so callers can decide what the
+ * user sees (same contract as before).
+ */
+async function deliver(msg: {
+  to: string;
+  subject: string;
+  text: string;
+  html: string;
+}): Promise<string> {
+  if (env.brevoApiKey) {
+    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'api-key': env.brevoApiKey,
+        'content-type': 'application/json',
+        accept: 'application/json',
+      },
+      body: JSON.stringify({
+        sender: parseFromAddress(env.smtp.fromAddress),
+        to: [{ email: msg.to }],
+        subject: msg.subject,
+        htmlContent: msg.html,
+        textContent: msg.text,
+      }),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Brevo API error ${res.status}: ${body}`);
+    }
+    const data = (await res.json().catch(() => ({}))) as { messageId?: string };
+    return data.messageId || 'brevo';
+  }
+
+  const info = await buildTransporter().sendMail({
+    from: env.smtp.fromAddress,
+    to: msg.to,
+    subject: msg.subject,
+    text: msg.text,
+    html: msg.html,
+  });
+  return info.messageId;
+}
+
 export async function sendTempPasswordEmail(
   toEmail: string,
   fullName: string,
@@ -294,27 +358,15 @@ export async function sendTempPasswordEmail(
 
   const html = buildHtmlBody(fullName, toEmail, tempPassword);
 
-  if (!env.smtp.host) {
+  if (!env.smtp.host && !env.brevoApiKey) {
     // In local/dev setups without SMTP configured, log instead of failing the request.
     console.log(`[email:dev-mode] Would send to ${toEmail}:\n${text}`);
     return;
   }
 
-  const transporter = buildTransporter();
+  const messageId = await deliver({ to: toEmail, subject, text, html });
 
-  // Throws on failure -- callers (seed.service.ts, adminUser.controller.ts)
-  // are responsible for catching this and deciding what the user sees.
-  // We deliberately do NOT swallow errors here: a silently failed email
-  // means someone has an account with credentials nobody received.
-  const info = await transporter.sendMail({
-    from: env.smtp.fromAddress,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
-
-  console.log(`[email] Sent temp-password email to ${toEmail} (messageId: ${info.messageId})`);
+  console.log(`[email] Sent temp-password email to ${toEmail} (messageId: ${messageId})`);
 }
 
 export async function sendPasswordResetEmail(
@@ -333,22 +385,14 @@ export async function sendPasswordResetEmail(
 
   const html = buildResetHtmlBody(fullName, resetUrl);
 
-  if (!env.smtp.host) {
+  if (!env.smtp.host && !env.brevoApiKey) {
     console.log(`[email:dev-mode] Would send to ${toEmail}:\n${text}`);
     return;
   }
 
-  const transporter = buildTransporter();
+  const messageId = await deliver({ to: toEmail, subject, text, html });
 
-  const info = await transporter.sendMail({
-    from: env.smtp.fromAddress,
-    to: toEmail,
-    subject,
-    text,
-    html,
-  });
-
-  console.log(`[email] Sent password reset email to ${toEmail} (messageId: ${info.messageId})`);
+  console.log(`[email] Sent password reset email to ${toEmail} (messageId: ${messageId})`);
 }
 
 /**
@@ -375,20 +419,12 @@ export async function sendEmailChangedNotice(
 
   const html = buildEmailChangedHtmlBody(fullName, oldEmail, newEmail);
 
-  if (!env.smtp.host) {
+  if (!env.smtp.host && !env.brevoApiKey) {
     console.log(`[email:dev-mode] Would send to ${oldEmail}:\n${text}`);
     return;
   }
 
-  const transporter = buildTransporter();
+  const messageId = await deliver({ to: oldEmail, subject, text, html });
 
-  const info = await transporter.sendMail({
-    from: env.smtp.fromAddress,
-    to: oldEmail,
-    subject,
-    text,
-    html,
-  });
-
-  console.log(`[email] Sent email-changed notice to ${oldEmail} (messageId: ${info.messageId})`);
+  console.log(`[email] Sent email-changed notice to ${oldEmail} (messageId: ${messageId})`);
 }

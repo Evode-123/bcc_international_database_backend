@@ -44,5 +44,9 @@ export const env = {
     fromAddress: process.env.SMTP_FROM || 'no-reply@bcc-disciples.org',
   },
 
+  // Optional. When set, emails are sent through Brevo's HTTPS API instead of
+  // SMTP. Needed on hosts (e.g. Render's free tier) that block SMTP ports.
+  brevoApiKey: process.env.BREVO_API_KEY || '',
+
   corsOrigin: process.env.CORS_ORIGIN || process.env.CLIENT_URL || '*',
 };
