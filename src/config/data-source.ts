@@ -25,6 +25,11 @@ export const AppDataSource = new DataSource({
   password: env.db.password,
   database: env.db.name,
 
+  // Hosted Postgres like Supabase needs an encrypted connection.
+  // rejectUnauthorized: false accepts Supabase's certificate chain without
+  // bundling their CA file -- the connection is still encrypted.
+  ssl: env.db.ssl ? { rejectUnauthorized: false } : false,
+
   entities: [
     Continent,
     Country,

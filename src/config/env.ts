@@ -23,6 +23,9 @@ export const env = {
     user: required('DB_USER'),
     password: required('DB_PASSWORD'),
     name: required('DB_NAME'),
+    // Supabase (and most hosted Postgres) requires SSL. Set DB_SSL=true in
+    // production; leave it unset locally so your local Postgres keeps working.
+    ssl: process.env.DB_SSL === 'true',
   },
 
   jwtSecret: required('JWT_ACCESS_SECRET'),
