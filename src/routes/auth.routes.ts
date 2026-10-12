@@ -5,14 +5,21 @@ import {
   completeProfile,
   changeEmail,
   me,
+  forgotPassword,
+  resetPassword,
 } from '../controllers/auth.controller';
 import { requireAuth, blockIfMustChangePassword } from '../middleware/auth.middleware';
-import { accountChangeRateLimiter } from '../middleware/rateLimit.middleware';
+import { accountChangeRateLimiter, passwordResetRateLimiter } from '../middleware/rateLimit.middleware';
 
 export const authRouter = Router();
 
 authRouter.post('/login', login);
 authRouter.get('/me', requireAuth, me);
+
+// Forgot / reset password. Public on purpose -- the person can't log in.
+// Rate-limited because forgot-password sends an email on every call.
+authRouter.post('/forgot-password', passwordResetRateLimiter, forgotPassword);
+authRouter.post('/reset-password', passwordResetRateLimiter, resetPassword);
 
 // Note: deliberately NOT behind blockIfMustChangePassword --
 // a user with a temp password must be able to call this route

@@ -67,3 +67,29 @@ export const accountChangeRateLimiter = rateLimit({
     });
   },
 });
+
+/**
+ * Rate-limits the public forgot-password / reset-password endpoints.
+ * forgot-password sends an email every time it is called, so without a limit
+ * anyone could use it to flood a person's inbox or burn through the email
+ * service's daily allowance.
+ *
+ * Keyed by IP + the email being asked about (same idea as loginRateLimiter),
+ * 5 requests per 15 minutes. reset-password has no email in its body (it uses
+ * a token), so those requests share one bucket per IP.
+ */
+export const passwordResetRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req: Request): string => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.toLowerCase() : 'token';
+    return `password-reset:${ipKeyGenerator(req.ip || '')}:${email}`;
+  },
+  handler: (_req, res) => {
+    res.status(429).json({
+      error: 'Too many attempts. Please wait a few minutes and try again.',
+    });
+  },
+});
